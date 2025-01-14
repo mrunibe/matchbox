@@ -5,7 +5,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Set;
 
-import jakarta.servlet.ServletOutputStream;
 /*
  * #%L
  * Matchbox Server
@@ -38,6 +37,7 @@ import org.hl7.fhir.utilities.xhtml.XhtmlNode;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import ca.uhn.fhir.context.FhirContext;
+import ca.uhn.fhir.parser.DataFormatException;
 import ca.uhn.fhir.rest.annotation.ConditionalUrlParam;
 import ca.uhn.fhir.rest.annotation.Operation;
 import ca.uhn.fhir.rest.annotation.OperationParam;
@@ -114,7 +114,7 @@ public class StructureMapTransformProvider extends StructureMapResourceProvider 
 		final List<StructureDefinition> models = new ArrayList<>(2);
 		@Nullable StructureMap map = null;
 
-		if (bodyResource instanceof final Parameters inputParameters) {
+		if (bodyResource != null && bodyResource instanceof final Parameters inputParameters) {
 			if (!inputParameters.hasParameter("resource")) {
 				throw new InvalidRequestException("When the body is a Parameters resource, the parameter 'resource' MUST " +
 																 "be present");
@@ -236,11 +236,17 @@ public class StructureMapTransformProvider extends StructureMapResourceProvider 
 	}
 
 	private IBaseResource parseBaseResource(String content) {
-		content = content.trim();
-		if (content.startsWith("<")) {
-			return this.fhirR5Context.newXmlParser().parseResource(content);
-		} else {
-			return this.fhirR5Context.newJsonParser().parseResource(content);
+		try {
+			content = content.trim();
+			if (content.startsWith("<")) {
+				return this.fhirR5Context.newXmlParser().parseResource(content);
+			} else {
+				return this.fhirR5Context.newJsonParser().parseResource(content);
+			}
+		} catch(DataFormatException e) {
+			// ignore
+			//log.warn("Not a valid R5 resource: " + e.getMessage(), e);
+			return null;
 		}
 	}
 
