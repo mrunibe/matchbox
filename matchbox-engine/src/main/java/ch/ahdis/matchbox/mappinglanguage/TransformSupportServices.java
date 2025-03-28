@@ -27,11 +27,14 @@ import java.util.HashMap;
 import org.hl7.fhir.exceptions.FHIRException;
 import org.hl7.fhir.r5.conformance.profile.ProfileUtilities;
 import org.hl7.fhir.r5.context.IWorkerContext;
+import org.hl7.fhir.r5.elementmodel.Element;
 import org.hl7.fhir.r5.elementmodel.Manager;
 import org.hl7.fhir.r5.model.Base;
 import org.hl7.fhir.r5.model.Coding;
 import org.hl7.fhir.r5.model.StructureDefinition;
 import org.hl7.fhir.r5.utils.structuremap.ITransformerServices;
+import org.hl7.fhir.r5.utils.structuremap.VariableMode;
+import org.hl7.fhir.r5.utils.structuremap.Variables;
 import org.hl7.fhir.utilities.Utilities;
 
 public class TransformSupportServices implements ITransformerServices {
@@ -44,7 +47,6 @@ public class TransformSupportServices implements ITransformerServices {
   public TransformSupportServices(IWorkerContext worker, List<Base> outputs) {
     this.context = worker;
     this.outputs = outputs;
-    this.referenceCache = new HashMap<String, Base>();
   }
 
   // matchbox patch https://github.com/ahdis/matchbox/issues/264
@@ -75,19 +77,18 @@ public class TransformSupportServices implements ITransformerServices {
     return cme.translate(source, conceptMapUrl);
   }
   
-  public void addToReferenceCache(Base res) {
-    // PoC: Just adding Resource/id for demonstration purposes.
-    // TODO: add other options, see BaseValidator.resolveInBundle() how to correctly resolve within a Bundle
-    this.referenceCache.put(res.fhirType() + "/" + res.getIdBase(), res);
-  }
-
   @Override
   public Base resolveReference(Object appContext, String url) throws FHIRException {	
    	org.hl7.fhir.r5.model.Resource resource = context.fetchResource(org.hl7.fhir.r5.model.Resource.class, url);
    	if(resource != null)
    	  return resource;
    	
-    // check reference from Bundle
+   	if(this.referenceCache == null) {
+   	  // look in Bundle for reference. Lazy cache references for subsequent lookups
+      cacheBundleReferences((Variables) appContext);
+   	}
+   	
+   	// check reference from Bundle
    	return this.referenceCache.get(url);
    	
 //    if (resource != null) {
@@ -109,6 +110,26 @@ public class TransformSupportServices implements ITransformerServices {
   @Override
   public void log(String message) {
     log.info(message);
+  }
+  
+  private void cacheBundleReferences(Variables vars) {
+    this.referenceCache = new HashMap<String, Base>();
+    Element bundle = (Element) vars.get(VariableMode.INPUT, "bundle");
+    if(bundle != null && bundle.hasChildren("entry")) {
+      for(Element entry : bundle.getChildrenByName("entry")) {
+        Element r = entry.getNamedChild("resource", false);
+        if(r != null) {
+          if(r.getIdBase() != null) {
+            // Resource/id
+            this.referenceCache.put(r.fhirType() + "/" + r.getIdBase(), r);
+          }
+          if(entry.getChildValue("fullUrl") != null) {
+            // fullUrl
+            this.referenceCache.put(entry.getChildValue("fullUrl"), r);
+          }
+        }
+      }
+    }
   }
 
 }
